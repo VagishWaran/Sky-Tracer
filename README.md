@@ -1,10 +1,10 @@
-# AeroScope — Malaysia Live Flight Monitoring Dashboard
+# Skytracer-Real Time Malaysian Live Flight Monitoring Dashboard
 
 A web-based aircraft monitoring and geospatial visualization dashboard designed to display aircraft activity across Malaysia and surrounding airspace.
 
 ## Overview
 
-AeroScope integrates aircraft state data from the OpenSky Network API with an interactive web dashboard, allowing users to explore aircraft positions and flight information on a map.
+Skytracer integrates aircraft state data from the OpenSky Network API with an interactive web dashboard, allowing users to explore aircraft positions and flight information on a map.
 
 ## Features
 
