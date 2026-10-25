@@ -1,0 +1,357 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Malaysia Flight Monitor</title>
+
+  <link rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e8eef8;
+      font-family: Arial, sans-serif;
+    }
+
+    header {
+      padding: 22px;
+      background: #111c2e;
+      border-bottom: 1px solid #29384e;
+    }
+
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .muted { color: #9aabc2; font-size: 13px; }
+
+    main { padding: 20px; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .panel, .card {
+      background: #111c2e;
+      border: 1px solid #29384e;
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .number {
+      font-size: 28px;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+    #map {
+      height: 470px;
+      margin-top: 16px;
+      border-radius: 8px;
+      background: #17263a;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    input, button {
+      padding: 10px 12px;
+      border: 1px solid #40516b;
+      border-radius: 8px;
+      color: white;
+      background: #17263a;
+    }
+
+    button { cursor: pointer; }
+    button:hover { background: #263b56; }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 12px;
+    }
+
+    table { width: 100%; border-collapse: collapse; }
+
+    th, td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid #29384e;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    th { color: #9aabc2; }
+
+    @media (max-width: 650px) {
+      main { padding: 12px; }
+      .stats { grid-template-columns: 1fr; }
+      #map { height: 350px; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>✈ Malaysia Flight Monitor</h1>
+    <div class="muted">
+      Aircraft positions · Malaysia & nearby airspace
+    </div>
+  </header>
+
+  <main>
+    <section class="stats">
+      <div class="card">
+        <div class="muted">Aircraft detected</div>
+        <div class="number" id="count">—</div>
+      </div>
+
+      <div class="card">
+        <div class="muted">Aircraft airborne</div>
+        <div class="number" id="airborne">—</div>
+      </div>
+
+      <div class="card">
+        <div class="muted">Last successful update</div>
+        <div class="number" id="updated" style="font-size:18px">
+          Waiting...
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
+          <strong>Live aircraft map</strong>
+          <p class="muted">Click a marker for flight details.</p>
+        </div>
+        <button id="refresh">Refresh now</button>
+      </div>
+
+      <div id="map"></div>
+    </section>
+
+    <section class="panel" style="margin-top:18px">
+      <div class="toolbar">
+        
+<strong>Aircraft list</strong>
+
+<select id="statusFilter">
+  <option value="all">All aircraft</option>
+  <option value="airborne">Airborne only</option>
+  <option value="ground">On ground only</option>
+</select>
+
+<input id="search" placeholder="Search callsign or country">
+
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Callsign</th>
+              <th>Country</th>
+              <th>Altitude (m)</th>
+              <th>Speed (km/h)</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="5">Waiting for flight data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="muted" id="message">Connecting to flight server...</p>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    const map = L.map("map").setView([4.5, 109.5], 5);
+
+    L.tileLayer(
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      {
+        attribution: "&copy; OpenStreetMap contributors",
+        maxZoom: 18
+      }
+    ).addTo(map);
+
+    const markers = L.layerGroup().addTo(map);
+    let flights = [];
+    let loading = false;
+
+    function safe(value) {
+      return String(value ?? "Unknown").replace(
+        /[&<>"']/g,
+        char => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;"
+        }[char])
+      );
+    }
+
+    function showTable() {
+      const query = document.getElementById("search")
+        .value.toLowerCase().trim();
+
+      
+const status = document.getElementById("statusFilter").value;
+
+const matching = flights.filter(f => {
+  const matchesSearch =
+    f.callsign.toLowerCase().includes(query) ||
+    f.country.toLowerCase().includes(query);
+
+  const matchesStatus =
+    status === "all" ||
+    (status === "airborne" && !f.onGround) ||
+    (status === "ground" && f.onGround);
+
+  return matchesSearch && matchesStatus;
+});
+
+document.getElementById("statusFilter")
+  .addEventListener("change", showTable);
+
+      document.getElementById("rows").innerHTML =
+        matching.slice(0, 200).map(f => `
+          <tr>
+            <td>${safe(f.callsign)}</td>
+            <td>${safe(f.country)}</td>
+            <td>${f.altitude == null
+              ? "—" : Math.round(f.altitude)}</td>
+            <td>${f.velocity == null
+              ? "—" : Math.round(f.velocity * 3.6)}</td>
+            <td>${f.onGround ? "On ground" : "Airborne"}</td>
+          </tr>
+        `).join("") ||
+        '<tr><td colspan="5">No matching aircraft.</td></tr>';
+    }
+
+    async function updateFlights() {
+      if (loading) return;
+
+      loading = true;
+      document.getElementById("message").textContent =
+        "Getting the latest available flight data...";
+
+      try {
+        const response = await fetch("/api/flights");
+
+        if (!response.ok) {
+          throw new Error("Server returned HTTP " + response.status);
+        }
+
+        const data = await response.json();
+        flights = data.flights || [];
+
+        markers.clearLayers();
+
+        flights.forEach(f => {
+         
+const planeColor = f.onGround ? "#f4bd50" : "#5eead4";
+
+const planeIcon = L.divIcon({
+  className: "",
+  iconSize: [30, 30],
+  iconAnchor: [15, 15],
+  popupAnchor: [0, -15],
+  html: `
+    <div style="
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      filter: drop-shadow(0 1px 3px #000);
+    ">
+      <svg
+        width="26"
+        height="26"
+        viewBox="0 0 24 24"
+        style="transform: rotate(${f.heading ?? 0}deg);"
+      >
+        <path
+          d="M12 2 L15 11 L21 14 L21 16
+             L15 15 L15 21 L12 19 L9 21
+             L9 15 L3 16 L3 14 L9 11 Z"
+          fill="${planeColor}"
+          stroke="#0b1220"
+          stroke-width="0.7"
+        />
+      </svg>
+    </div>
+  `
+});
+
+const marker = L.marker(
+  [f.latitude, f.longitude],
+  { icon: planeIcon }
+);
+
+
+          marker.bindPopup(`
+            <b>${safe(f.callsign)}</b><br>
+            Country: ${safe(f.country)}<br>
+            Altitude: ${f.altitude == null
+              ? "Unknown" : Math.round(f.altitude) + " m"}<br>
+            Speed: ${f.velocity == null
+              ? "Unknown" : Math.round(f.velocity * 3.6) + " km/h"}<br>
+            Heading: ${f.heading == null
+              ? "Unknown" : Math.round(f.heading) + "°"}
+          `);
+
+          marker.addTo(markers);
+        });
+
+        document.getElementById("count").textContent =
+          flights.length;
+
+        document.getElementById("airborne").textContent =
+          flights.filter(f => !f.onGround).length;
+
+        document.getElementById("updated").textContent =
+          new Date(data.updatedAt).toLocaleTimeString();
+
+        showTable();
+
+        document.getElementById("message").textContent =
+          "Flight data loaded. Automatic refresh every 15 minutes.";
+
+      } catch (error) {
+        document.getElementById("message").textContent =
+          "Flight data unavailable: " + error.message +
+          ". Check the server and API access.";
+      } finally {
+        loading = false;
+      }
+    }
+
+    document.getElementById("search")
+      .addEventListener("input", showTable);
+
+    document.getElementById("refresh")
+      .addEventListener("click", updateFlights);
+
+    updateFlights();
+    setInterval(updateFlights, 15 * 60 * 1000);
+  </script>
+</body>
+</html>
